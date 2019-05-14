@@ -85,7 +85,6 @@ type leaderState struct {
 	replState                    map[ServerID]*followerReplication
 	notify                       map[*verifyFuture]struct{}
 	stepDown                     chan struct{}
-	lease                        <-chan time.Time
 }
 
 // setLeader is used to modify the current leader of the cluster
@@ -356,7 +355,6 @@ func (r *Raft) setupLeaderState() {
 	r.leaderState.replState = make(map[ServerID]*followerReplication)
 	r.leaderState.notify = make(map[*verifyFuture]struct{})
 	r.leaderState.stepDown = make(chan struct{}, 1)
-	r.leaderState.lease = time.After(r.conf.LeaderLeaseTimeout)
 }
 
 // runLeader runs the FSM for a leader. Do the setup here and drop into
@@ -532,6 +530,7 @@ func (r *Raft) leaderLoop() {
 	// only a single peer (ourself) and replicating to an undefined set
 	// of peers.
 	stepDown := false
+	lease := time.After(r.conf.LeaderLeaseTimeout)
 
 	for r.getState() == Leader {
 		select {
@@ -708,7 +707,7 @@ func (r *Raft) leaderLoop() {
 				r.dispatchLogs(ready)
 			}
 
-		case <-r.leaderState.lease:
+		case <-lease:
 			// Check if we've exceeded the lease, potentially stepping down
 			maxDiff := r.checkLeaderLease()
 
@@ -720,7 +719,7 @@ func (r *Raft) leaderLoop() {
 			}
 
 			// Renew the lease timer
-			r.leaderState.lease = time.After(checkInterval)
+			lease = time.After(checkInterval)
 
 		case <-r.shutdownCh:
 			return
